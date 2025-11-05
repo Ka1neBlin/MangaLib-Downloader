@@ -5,6 +5,7 @@ import time
 import re
 import shutil
 import zipfile
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Optional, Dict, Any, List, Tuple
 from dataclasses import dataclass
@@ -14,6 +15,7 @@ from tqdm.asyncio import tqdm as async_tqdm
 class Config:
     manga_slug: str
     chapter_range: Tuple[int, int]
+    series_title_override: Optional[str] = None
     volume_override: Optional[int] = None
     output_dir: Path = Path("downloads")
     max_concurrent_chapters: int = 3
@@ -48,6 +50,10 @@ class C:
         return f"{C.RED}Error: {C.RESET} {m}"
 
     @staticmethod
+    def w(m: str) -> str:
+        return f"{C.YELLOW}Warning: {C.RESET} {m}"
+
+    @staticmethod
     def chap(n: int) -> str:
         return f"{C.BOLD}{C.MAG}Chapter {n}{C.RESET}"
 
@@ -61,7 +67,7 @@ class ChapterInfo:
     volume: int
     name: str
     pages_count: int
-    series_title: str
+    series_title: Optional[str]
     teams: List[str]
     chapter_id: Optional[str] = None
 
@@ -100,6 +106,7 @@ class MangaAPIClient:
                 async with self._session.get(url, params=params, timeout=30) as resp:
                     if resp.status == 429:
                         wait = self._get_retry_after(resp.headers, attempt)
+                        print(C.w(f"Rate limit hit (429) for API. Retrying in {wait:.2f}s... (Attempt {attempt + 1}/{retries})"))
                         await asyncio.sleep(wait)
                         continue
 
@@ -110,14 +117,17 @@ class MangaAPIClient:
 
             except aiohttp.ClientResponseError as cre:
                 if cre.status == 429:
-                    await asyncio.sleep(min(2 ** attempt, 60) + 0.1 * attempt)
+                    wait = self._get_retry_after({}, attempt)
+                    print(C.w(f"Rate limit hit (429) via exception. Retrying in {wait:.2f}s... (Attempt {attempt + 1}/{retries})"))
+                    await asyncio.sleep(wait)
                     continue
                 if attempt == retries - 1:
                     raise
                 await asyncio.sleep(0.2 * (attempt + 1))
 
-            except Exception:
+            except Exception as e:
                 if attempt == retries - 1:
+                    print(C.e(f"Request failed after {retries} attempts: {e}"))
                     raise
                 await asyncio.sleep(0.2 * (attempt + 1))
 
@@ -127,8 +137,8 @@ class MangaAPIClient:
     def _get_retry_after(headers: Dict[str, str], attempt: int) -> float:
         ra = headers.get("Retry-After")
         if ra and ra.isdigit():
-            return float(ra)
-        return min(2 ** attempt, 60)
+            return float(ra) + 1.0
+        return min(2 ** attempt, 60) + 0.1 * attempt
 
     @staticmethod
     def _to_float(s: str) -> Optional[float]:
@@ -245,8 +255,8 @@ class MangaAPIClient:
                 continue
 
         raise ValueError(f"Could not determine volume for chapter {chapter_num}")
-    
-    async def download_image(self, url: str, dest: Path, retries: int = 3):
+
+    async def download_image(self, url: str, dest: Path, retries: int = 10):
         headers = {
             **self._headers,
             "Referer": self.cfg.referer,
@@ -256,7 +266,14 @@ class MangaAPIClient:
         for attempt in range(retries):
             try:
                 async with self._session.get(url, headers=headers, timeout=60) as resp:
+                    if resp.status == 429:
+                        wait = self._get_retry_after(resp.headers, attempt)
+                        print(C.w(f"Rate limit hit (429) for image. Retrying in {wait:.2f}s... (Attempt {attempt + 1}/{retries})"))
+                        await asyncio.sleep(wait)
+                        continue
+
                     if resp.status == 403 and attempt < retries - 1:
+                        print(C.w(f"403 Forbidden received. Warming up session and retrying... (Attempt {attempt + 1}/{retries})"))
                         await self._warm()
                         await asyncio.sleep(0.3 * (attempt + 1))
                         continue
@@ -271,8 +288,9 @@ class MangaAPIClient:
                     await asyncio.sleep(self.cfg.request_delay)
                     return
 
-            except Exception:
+            except Exception as e:
                 if attempt == retries - 1:
+                    print(C.e(f"Image download failed after {retries} attempts: {e}"))
                     raise
                 await asyncio.sleep(0.2 * (attempt + 1))
 
@@ -302,77 +320,99 @@ class ChapterDownloader:
     async def download_chapter(self, api: MangaAPIClient, ch: int) -> Optional[Path]:
         tmp_dir = self.cfg.output_dir / f"_tmp_ch{ch}_{int(time.time())}"
         tmp_dir.mkdir(parents=True, exist_ok=True)
-    
+
         try:
             volume = await api.resolve_volume(self.cfg.manga_slug, ch)
             chapter_json = await api.fetch_chapter_data(self.cfg.manga_slug, ch, volume)
             data = chapter_json.get("data", {})
-    
+
             if not isinstance(data, dict):
                 raise ValueError("Invalid API response: 'data' is not a dictionary")
-    
+
             pages = data.get("pages", [])
             if not pages:
                 raise ValueError("No pages found")
-    
-            meta = await api.fetch_series_info(self.cfg.manga_slug)
-            title = meta.get("name") or meta.get("title") or data.get("manga_id") or "Unknown"
-            name = str(data.get("name") or "").strip()  # Гарантированная инициализация
+
+            title_from_api: Optional[str] = None
+            if not self.cfg.series_title_override:
+                meta = await api.fetch_series_info(self.cfg.manga_slug)
+                raw_title = meta.get("name") or meta.get("title") or data.get("manga_id") or "Unknown"
+                title_from_api = str(raw_title).strip()
+
+            series_title = self.cfg.series_title_override or title_from_api or self.cfg.manga_slug
+            name = str(data.get("name") or "").strip()
             teams = [t.get("name", "") for t in data.get("teams", []) if isinstance(t, dict)]
-    
-            print(f"\n{C.chap(ch)} | {C.title(title)}")
+
+            print(f"\n{C.chap(ch)} | {C.title(series_title)}")
             print(f"  Volume: {volume} | Pages: {len(pages)} | Name: {name or 'N/A'}")
-    
+
             urls = [
                 self._build_image_url(p.get("url") or p.get("image", ""), self.cfg.image_host)
                 for p in pages
                 if isinstance(p, dict)
             ]
-    
+
             if not urls:
                 raise ValueError("No valid image URLs found")
-    
+
             sem = asyncio.Semaphore(self.cfg.max_concurrent_images)
-    
+
             async def download_task(idx: int, url: str):
                 async with sem:
                     ext = Path(url).suffix or ".jpg"
                     filename = f"{idx:03d}{ext}"
                     await api.download_image(url, tmp_dir / filename)
-    
+
             tasks = [download_task(i + 1, u) for i, u in enumerate(urls)]
             await async_tqdm.gather(*tasks, desc=f"  Downloading Ch{ch}", unit="img")
-    
+
             info = ChapterInfo(
                 number=ch,
                 volume=volume,
                 name=name,
                 pages_count=len(urls),
-                series_title=title,
+                series_title=series_title,
                 teams=teams,
                 chapter_id=str(data.get("id", ""))
             )
-    
+
             cbz_path = self._create_cbz(tmp_dir, info)
             print(C.s(f"Saved: {cbz_path.name}"))
             return cbz_path
-    
+
         except Exception as e:
             print(C.e(f"Chapter {ch}: {e}"))
             return None
-    
+
         finally:
             if self.cfg.cleanup_temp and tmp_dir.exists():
                 shutil.rmtree(tmp_dir, ignore_errors=True)
 
+    def _create_comicinfo_xml(self, info: ChapterInfo) -> bytes:
+        root = ET.Element("ComicInfo")
+        ET.SubElement(root, "Title").text = info.name or f"Chapter {info.number}"
+        ET.SubElement(root, "Series").text = info.series_title or self.cfg.manga_slug 
+        ET.SubElement(root, "Number").text = str(info.number)
+        ET.SubElement(root, "Volume").text = str(info.volume)
+        ET.SubElement(root, "PageCount").text = str(info.pages_count)
+        ET.SubElement(root, "Summary").text = f"Chapter {info.number} of {info.series_title or self.cfg.manga_slug}"
+        if info.teams:
+            ET.SubElement(root, "Writer").text = ", ".join(info.teams)
+        ET.SubElement(root, "Notes").text = f"Generated by MangaLib Downloader v2.0 at {time.strftime('%Y-%m-%d %H:%M:%S')}"
+
+        xml_bytes = ET.tostring(root, encoding="utf-8", xml_declaration=True)
+        return xml_bytes
+
     def _create_cbz(self, tmp_dir: Path, info: ChapterInfo) -> Path:
         sanitized_name = self._sanitize(
-            f"{info.name} - Vol{info.volume} - Ch{info.number}".strip()
+            f"{info.number:03d}ch - {info.name or 'Chapter'} - vol{info.volume:02d}"
         )
         cbz_path = self.cfg.output_dir / f"{sanitized_name}.cbz"
 
+        final_series_title = info.series_title or self.cfg.manga_slug
+
         meta = {
-            "series": info.series_title,
+            "series": final_series_title,
             "chapter_number": info.number,
             "volume": info.volume,
             "chapter_name": info.name,
@@ -382,8 +422,11 @@ class ChapterDownloader:
             "created_at": time.strftime("%Y-%m-%d %H:%M:%S")
         }
 
+        comicinfo_xml = self._create_comicinfo_xml(info)
+
         with zipfile.ZipFile(cbz_path, "w", zipfile.ZIP_DEFLATED) as zf:
             zf.writestr("info.txt", json.dumps(meta, ensure_ascii=False, indent=2))
+            zf.writestr("ComicInfo.xml", comicinfo_xml)
             for file in sorted(tmp_dir.iterdir()):
                 if file.is_file():
                     zf.write(file, arcname=file.name)
@@ -395,9 +438,11 @@ class ChapterDownloader:
         chapters = list(range(start, end + 1))
 
         print(f"\n{C.BOLD}╔══════════════════════════════════════════╗{C.RESET}")
-        print(f"{C.BOLD}║      MangaLib Downloader v2.0            ║{C.RESET}")
+        print(f"{C.BOLD}║         MangaLib Downloader v2.0         ║{C.RESET}")
         print(f"{C.BOLD}╚══════════════════════════════════════════╝{C.RESET}")
-        print(f"\n{C.i(f'Manga: {self.cfg.manga_slug}')}")
+        
+        series_info = self.cfg.series_title_override or self.cfg.manga_slug + " (from slug)"
+        print(f"\n{C.i(f'Manga: {series_info}')}")
         print(f"{C.i(f'Chapters: {start}-{end} ({len(chapters)} total)')}")
         print(f"{C.i(f'Concurrency: {self.cfg.max_concurrent_chapters} chapters, {self.cfg.max_concurrent_images} images')}\n")
 
@@ -430,14 +475,23 @@ class ChapterDownloader:
 
         return successful
 
+
+
+
+# ------------ КОНФИГ ------------ 
 async def main():
     cfg = Config(
-        manga_slug="114307--kaoru-hana-wa-rinto-saku",
-        chapter_range=(37, 60),
-        max_concurrent_chapters=5,
-        max_concurrent_images=10,
-        request_delay=0.1
+        manga_slug="цыферкитакие--названиемангипрямвотизURI",
+        chapter_range=(52, 80), # первое число с какой главы, второе - до какой
+        series_title_override="Название тайтла для меты и удобного залития на комгу", 
+        max_concurrent_chapters=3, # рекомендуемое от 1 до 5
+        max_concurrent_images=3, # рекомендуемое от 2 до 10
+        request_delay=3 # рекомендуемое от 0.5 до 5
     )
+# ------------ КОНФИГ ------------ 
+
+
+
 
     downloader = ChapterDownloader(cfg)
     await downloader.download_chapters(cfg.chapter_range)
