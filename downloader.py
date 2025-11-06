@@ -293,23 +293,35 @@ class ChapterDownloader:
         (series_folder / "series.json").write_text(series_json, encoding="utf-8")
 
     def _process_volumes(self, volume_groups: dict, series_folder: Path, series_title: str, series_meta: dict):
-        for volume in sorted(volume_groups):
-            chapter_list = sorted(volume_groups[volume], key=lambda x: x[1].number)
-            
-            vol_name = f"Volume {volume:02d}"
-            sanitized_vol = self.sanitize_filename(vol_name)
-            vol_folder = series_folder / sanitized_vol
-            vol_folder.mkdir(exist_ok=True)
+        if self.cfg.group_by_volume:
+            for volume in sorted(volume_groups):
+                chapter_list = sorted(volume_groups[volume], key=lambda x: x[1].number)
+                
+                vol_name = f"Volume {volume:02d}"
+                sanitized_vol = self.sanitize_filename(vol_name)
+                vol_folder = series_folder / sanitized_vol
+                vol_folder.mkdir(exist_ok=True)
 
-            vol_xml = self.metadata_gen.create_volume_comicinfo(
-                volume, series_title, len(chapter_list), series_meta
-            )
-            (vol_folder / "ComicInfo.xml").write_bytes(vol_xml)
+                vol_xml = self.metadata_gen.create_volume_comicinfo(
+                    volume, series_title, len(chapter_list), series_meta
+                )
+                (vol_folder / "ComicInfo.xml").write_bytes(vol_xml)
+
+                for tmp_dir, info in chapter_list:
+                    chap_name = f"Chapter {info.number:03d}"
+                    sanitized_chap = self.sanitize_filename(chap_name)
+                    cbz_path = vol_folder / f"{sanitized_chap}.cbz"
+                    self.create_cbz(tmp_dir, info, cbz_path)
+        else:
+            all_chapters = []
+            for volume in sorted(volume_groups):
+                all_chapters.extend(volume_groups[volume])
+            chapter_list = sorted(all_chapters, key=lambda x: x[1].number)
 
             for tmp_dir, info in chapter_list:
                 chap_name = f"Chapter {info.number:03d}"
                 sanitized_chap = self.sanitize_filename(chap_name)
-                cbz_path = vol_folder / f"{sanitized_chap}.cbz"
+                cbz_path = series_folder / f"{sanitized_chap}.cbz"
                 self.create_cbz(tmp_dir, info, cbz_path)
 
     def _create_final_archive(self, temp_series_dir: Path, sanitized_series: str) -> Path:
