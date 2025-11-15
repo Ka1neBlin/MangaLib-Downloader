@@ -34,7 +34,7 @@ pip install -r requirements.txt
 ```python
 cfg = Config(
     manga_slug="114307--kaoru-hana-wa-rinto-saku",
-    chapter_range=(54, 80),  # диапазон глав
+    chapter_range=(54, 80),  # диапазон глав (Диапазон между ними представляет из себя список индексов)
     series_title_override="Kaoru Hana Wa Rin To Saku",
     
     # Параметры производительности
