@@ -5,6 +5,7 @@ from downloader import ChapterDownloader
 import argparse
 import sys
 import json
+import os
 
 def prompt_user_config() -> Config:
     print("=== MangaLib Downloader Config ===\n")
@@ -62,10 +63,28 @@ def generate_base_config():
 
     print("Базовая конфигурация успешно создана")
 
+def read_config_file(file_path: str) -> Config:
+    with open(file_path, "r", encoding="utf-8") as file:
+        data = json.load(file)
+
+    cfg = Config(
+        manga_slug = data["manga_slug"].split("/")[-1].split("?")[0],
+        chapter_range = (data["chapter_begin"], data["chapter_end"]),
+        series_title_override = data["series_title_override"],
+        max_concurrent_chapters = data["max_concurrent_chapters"],
+        max_concurrent_images = data["max_concurrent_images"],
+        request_delay = data["request_delay"],
+        output_dir = Path("downloads"),
+        cleanup_temp = True
+    )
+
+    return cfg
+
 async def main():
     parser = argparse.ArgumentParser("Загрузчик глав с MangaLib") # Необходим для принятия входящих аргументов
 
     parser.add_argument("--make_base_config", action="store_true", help="Создать пример конфигурационного файла")
+    parser.add_argument("--config_file", type=str, help="Использовать конфигурационный файл для скачивания главы")
     args = parser.parse_args()
 
     if len(sys.argv) == 1:
@@ -75,6 +94,11 @@ async def main():
 
     if args.make_base_config:
         generate_base_config()
+
+    if args.config_file:
+        cfg = read_config_file(args.config_file)
+        downloader = ChapterDownloader(cfg)
+        await downloader.download_chapters(cfg.chapter_range)
 
 if __name__ == "__main__":
     asyncio.run(main())
