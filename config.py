@@ -6,7 +6,7 @@ from typing import Optional, Tuple
 @dataclass
 class Config:
     manga_slug: str
-    chapter_range: Tuple[int, int]
+    chapter_range: Tuple[int, int | float]
     series_title_override: Optional[str] = None
     volume_override: Optional[int] = None
     output_dir: Path = Path("downloads")

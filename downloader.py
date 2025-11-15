@@ -50,7 +50,8 @@ class ChapterDownloader:
         name = re.sub(r'\d+', '', name).strip()
         return name
 
-    async def download_chapter(self, api: MangaAPIClient, chapter_num: int) -> Optional[Tuple[Path, ChapterInfo]]:
+    # Пока что пробую совместить номера обычных глав и экстр
+    async def download_chapter(self, api: MangaAPIClient, chapter_num: int | float) -> Optional[Tuple[Path, ChapterInfo]]:
         tmp_dir = self.cfg.output_dir / f"_tmp_ch{chapter_num}_{int(time.time())}"
         tmp_dir.mkdir(parents=True, exist_ok=True)
 
@@ -124,7 +125,7 @@ class ChapterDownloader:
         return str(raw_title).strip()
 
     async def _download_images(self, api: MangaAPIClient, urls: List[str], 
-                               tmp_dir: Path, chapter_num: int):
+                               tmp_dir: Path, chapter_num: int | float):
         sem = asyncio.Semaphore(self.cfg.max_concurrent_images)
 
         async def download_task(idx: int, url: str):
@@ -164,7 +165,9 @@ class ChapterDownloader:
                 if file.is_file():
                     zf.write(file, arcname=file.name)
 
-    async def download_chapters(self, chapter_range: Tuple[int, int]) -> List[Path]:
+
+    # Не знаю, получится ли с Tuple[int, float]
+    async def download_chapters(self, chapter_range: Tuple[int, int | float]) -> List[Path]:
         start, end = chapter_range
         chapters = list(range(start, end + 1))
 
@@ -212,7 +215,7 @@ class ChapterDownloader:
                 series_meta.get("eng_name") or 
                 self.cfg.manga_slug)
 
-    async def _download_all_chapters(self, api: MangaAPIClient, chapters: List[int]) -> list:
+    async def _download_all_chapters(self, api: MangaAPIClient, chapters: List[int | float]) -> list:
         sem = asyncio.Semaphore(self.cfg.max_concurrent_chapters)
 
         async def download_with_limit(ch: int):
@@ -224,7 +227,7 @@ class ChapterDownloader:
             return_exceptions=True
         )
 
-    def _process_results(self, chapters: List[int], 
+    def _process_results(self, chapters: List[int | float], 
                         results: list) -> Tuple[list, int]:
         successful = []
         failed_count = 0

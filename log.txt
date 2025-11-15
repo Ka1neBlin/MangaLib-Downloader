@@ -1,0 +1,19 @@
+Traceback (most recent call last):
+  File "/home/yoel/MangaLib-Downloader/main.py", line 35, in <module>
+    asyncio.run(main())
+    ~~~~~~~~~~~^^^^^^^^
+  File "/usr/lib/python3.13/asyncio/runners.py", line 195, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "/usr/lib/python3.13/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/usr/lib/python3.13/asyncio/base_events.py", line 725, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "/home/yoel/MangaLib-Downloader/main.py", line 31, in main
+    await downloader.download_chapters(cfg.chapter_range)
+  File "/home/yoel/MangaLib-Downloader/downloader.py", line 172, in download_chapters
+    chapters = list(range(start, end + 1))
+                    ~~~~~^^^^^^^^^^^^^^^^
+TypeError: 'float' object cannot be interpreted as an integer

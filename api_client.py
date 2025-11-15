@@ -12,7 +12,7 @@ class MangaAPIClient:
     def __init__(self, cfg: Config):
         self.cfg = cfg
         self._session: Optional[aiohttp.ClientSession] = None
-        self._chapters_map: Dict[str, Dict[float, int]] = {}
+        self._chapters_map: Dict[str, Dict[float, int | float]] = {}
         self._series_cache: Dict[str, Dict[str, Any]] = {}
         self._headers = {
             "User-Agent": "Mozilla/5.0 (iPad; CPU OS 18_6_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/142.0.7444.46 Mobile/15E148 Safari/604.1",
@@ -94,6 +94,7 @@ class MangaAPIClient:
             except ValueError:
                 return None
 
+    # Потом попробую проверить данную функцию
     async def fetch_chapters_list(self, slug: str) -> Dict[float, int]:
         if slug in self._chapters_map:
             return self._chapters_map[slug]
@@ -150,7 +151,7 @@ class MangaAPIClient:
         self._series_cache[slug] = result
         return result
 
-    async def fetch_chapter_data(self, slug: str, chapter_num: int, 
+    async def fetch_chapter_data(self, slug: str, chapter_num: int | float, 
                                  volume: int) -> Dict[str, Any]:
         url = f"{self.cfg.api_base}/{slug}/chapter"
         return await self._get_json(
@@ -159,7 +160,7 @@ class MangaAPIClient:
             retries=4
         )
 
-    async def resolve_volume(self, slug: str, chapter_num: int) -> int:
+    async def resolve_volume(self, slug: str, chapter_num: int | float) -> int:
         if self.cfg.volume_override is not None:
             return self.cfg.volume_override
 
@@ -209,7 +210,7 @@ class MangaAPIClient:
 
         return search(metadata)
 
-    async def _bruteforce_volume(self, slug: str, chapter_num: int) -> int:
+    async def _bruteforce_volume(self, slug: str, chapter_num: int | float) -> int:
         start, end = self.cfg.fallback_volume_range
         
         for volume in range(start, end + 1):
