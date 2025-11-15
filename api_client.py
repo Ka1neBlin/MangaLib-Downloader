@@ -1,7 +1,7 @@
 import asyncio
 import aiohttp
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 from config import Config
 from colors import Colors
@@ -93,6 +93,31 @@ class MangaAPIClient:
                 return float(value.replace(",", "."))
             except ValueError:
                 return None
+
+    # Данная функция возвращает список номеров глав по их индексам в JSON
+    async def get_chapters_num_by_index(self, slug: str, index_list: List[int]) -> List[int | float]:
+        url = f"{self.cfg.api_base}/{slug}/chapters"
+        try:
+            data = await self._get_json(url, retries=4)
+            items = data.get("data", []) if isinstance(data, dict) else []
+            chapter_nums = [item for item in items
+                            if item.get("index") in index_list]
+            list = []
+            def parse_num(number): # Преобразуем полученное число
+                try:
+                    return int(number)
+                except ValueError:
+                    try:
+                        return float(number)
+                    except ValueError:
+                        return None
+
+            for chapter_num in chapter_nums:
+                list.append(parse_num(chapter_num.get("number")))
+
+            return list
+        except Exception:
+            return []
 
     # Потом попробую проверить данную функцию
     async def fetch_chapters_list(self, slug: str) -> Dict[float, int]:

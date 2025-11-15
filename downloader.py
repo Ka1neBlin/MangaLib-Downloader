@@ -166,19 +166,23 @@ class ChapterDownloader:
                     zf.write(file, arcname=file.name)
 
 
-    # Не знаю, получится ли с Tuple[int, float]
-    async def download_chapters(self, chapter_range: Tuple[int, int | float]) -> List[Path]:
+    # Не получилось, но надо сделать проверку на экстру
+    async def download_chapters(self, chapter_range: Tuple[int, int]) -> List[Path]:
         start, end = chapter_range
-        chapters = list(range(start, end + 1))
+        chapters_index_list = list(range(start, end + 1))
+        # print(chapters_index_list)
+        # TODO: Сделать функцию, которая возвращает список номеров глав по их индексам
 
-        self._print_header(start, end, len(chapters))
+        self._print_header(start, end, len(chapters_index_list))
 
         async with MangaAPIClient(self.cfg) as api:
             try:
                 await api.fetch_chapters_list(self.cfg.manga_slug)
+                # print("Запрос к списку глав")
             except Exception:
                 pass
 
+            chapters = await api.get_chapters_num_by_index(self.cfg.manga_slug, chapters_index_list)
             series_meta = await api.fetch_series_info(self.cfg.manga_slug)
             series_title = self._determine_series_title(series_meta)
 
@@ -218,7 +222,7 @@ class ChapterDownloader:
     async def _download_all_chapters(self, api: MangaAPIClient, chapters: List[int | float]) -> list:
         sem = asyncio.Semaphore(self.cfg.max_concurrent_chapters)
 
-        async def download_with_limit(ch: int):
+        async def download_with_limit(ch: int | float):
             async with sem:
                 return await self.download_chapter(api, ch)
 
@@ -311,7 +315,12 @@ class ChapterDownloader:
                 (vol_folder / "ComicInfo.xml").write_bytes(vol_xml)
 
                 for tmp_dir, info in chapter_list:
-                    chap_name = f"Chapter {info.number:03d}"
+                    if isinstance(info.number, int):
+                        chap_name = f"Chapter {info.number:03d}"
+                    elif isinstance(info.number, float):
+                        chap_name = f"Chapter {info.number:.1f}"
+                    else:
+                        chap_name = f"Chapter {info.number}"
                     sanitized_chap = self.sanitize_filename(chap_name)
                     cbz_path = vol_folder / f"{sanitized_chap}.cbz"
                     self.create_cbz(tmp_dir, info, cbz_path)
@@ -322,7 +331,13 @@ class ChapterDownloader:
             chapter_list = sorted(all_chapters, key=lambda x: x[1].number)
 
             for tmp_dir, info in chapter_list:
-                chap_name = f"Chapter {info.number:03d}"
+                if isinstance(info.number, int):
+                    chap_name = f"Chapter {info.number:03d}"
+                elif isinstance(info.number, float):
+                    chap_name = f"Chapter {info.number:.1f}"
+                else:
+                    chap_name = f"Chapter {info.number}"
+
                 sanitized_chap = self.sanitize_filename(chap_name)
                 cbz_path = series_folder / f"{sanitized_chap}.cbz"
                 self.create_cbz(tmp_dir, info, cbz_path)
