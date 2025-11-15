@@ -2,6 +2,8 @@ import asyncio
 from pathlib import Path
 from config import Config
 from downloader import ChapterDownloader
+import argparse
+import sys
 
 
 def prompt_user_config() -> Config:
@@ -46,9 +48,12 @@ def prompt_user_config() -> Config:
 
 
 async def main():
-    cfg = prompt_user_config()
-    downloader = ChapterDownloader(cfg)
-    await downloader.download_chapters(cfg.chapter_range)
+    parser = argparse.ArgumentParser() # Необходим для принятия входящих аргументов
+
+    if len(sys.argv) == 1:
+        cfg = prompt_user_config()
+        downloader = ChapterDownloader(cfg)
+        await downloader.download_chapters(cfg.chapter_range)
 
 
 if __name__ == "__main__":
