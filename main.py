@@ -1,32 +1,52 @@
 import asyncio
 from pathlib import Path
-
 from config import Config
 from downloader import ChapterDownloader
 
 
-async def main():
-    # ========== КОНФИГУРАЦИЯ ==========
+def prompt_user_config() -> Config:
+    print("=== MangaLib Downloader Config ===\n")
+
+    manga_url = input("Введите ссылку на мангу: ").strip()
+    # Извлекаем slug из ссылки, например "https://mangalib.me/114307--kaoru-hana-wa-rinto-saku"
+    manga_slug = manga_url.split("/")[-1].split("?")[0]
+
+    start = int(input("Введите начальную главу: ").strip() or "1")
+    end = int(input("Введите конечную главу: ").strip() or str(start))
+
+    title_override = input("Название манги (Enter — оставить по умолчанию): ").strip() or None
+
+    try:
+        max_chapters = int(input("Максимум одновременно загружаемых глав (по умолчанию 1): ") or "1")
+        max_images = int(input("Максимум одновременно загружаемых изображений (по умолчанию 5): ") or "5")
+        delay = float(input("Задержка между запросами (по умолчанию 0.8): ") or "0.8")
+    except ValueError:
+        max_chapters, max_images, delay = 1, 5, 0.8
+
+    pack_cbz_input = input("Собирать CBZ архивы? (y/n, по умолчанию y): ").strip().lower()
+    pack_cbz = pack_cbz_input != "n"
+
+    generate_metadata_input = input("Создавать ComicInfo/series.json? (y/n, по умолчанию y): ").strip().lower()
+    generate_metadata = generate_metadata_input != "n"
+
     cfg = Config(
-        manga_slug="1357--vagabond", # https://mangalib.me/ru/manga/ВОТ ЗДЕСЬ БУДУТ ЦИФРЫ И НАЗВАНИЕ, СКОПИРОВАТЬ ДО ВОПРОСИТЕЛЬНОГО ЗНАКА ВКЛЮЧИТЕЛЬНО (если есть)
-        chapter_range=(326, 328),  # (начальная глава, конечная глава)
-        series_title_override="Vagabond",
-        
-        # Параметры производительности
-        max_concurrent_chapters=2,  # рекомендуется: 1-5
-        max_concurrent_images=3,    # рекомендуется: 2-10
-        request_delay=5,          # рекомендуется: 0.5-5
-        
-        # Дополнительные параметры
+        manga_slug=manga_slug,
+        chapter_range=(start, end),
+        series_title_override=title_override,
+        max_concurrent_chapters=max_chapters,
+        max_concurrent_images=max_images,
+        request_delay=delay,
         output_dir=Path("downloads"),
         cleanup_temp=True,
-        fallback_volume_range=(1, 15),
-
-        # если False — НЕ распределять по томам (все главы в одной папке архива)
-        group_by_volume=False,
+        # pack_cbz=pack_cbz,
+        # generate_metadata=generate_metadata
     )
-    # ========== КОНФИГУРАЦИЯ ==========
 
+    return cfg
+
+
+async def main():
+    cfg = prompt_user_config()
     downloader = ChapterDownloader(cfg)
     await downloader.download_chapters(cfg.chapter_range)
 
